@@ -4,6 +4,7 @@ using CliWrap.Buffered;
 //using Downloader;
 using InternetArchiveSyncer;
 using Serilog;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Xml;
 
@@ -157,7 +158,11 @@ foreach (var archive in config.ArchiveConfigs)
 
         var options = new ParallelOptions()
         {
-            MaxDegreeOfParallelism = 8
+#if DEBUG
+            MaxDegreeOfParallelism = 1,
+#else
+            MaxDegreeOfParallelism = 8,
+#endif
         };
 
         var childNodes = new List<XmlNode>();
@@ -167,6 +172,14 @@ foreach (var archive in config.ArchiveConfigs)
         }
 
         var breakLoop = false;
+
+        var ignoredFiles = new List<string>()
+        {
+            "__ia_thumb.jpg",
+            $"{archive.Archive}_meta.sqlite",
+            $"{archive.Archive}_meta.xml",
+            $"{archive.Archive}_reviews.xml",
+        };
 
         await Parallel.ForEachAsync(childNodes, options, async (XmlNode fileNode, CancellationToken cancellationToken) =>
         {
@@ -184,14 +197,13 @@ foreach (var archive in config.ArchiveConfigs)
                     var extension = Path.GetExtension(iaFileNode.Filename).ToLower();
 
                     // Can probably me more explicity to ignore files specific to this.
-                    if (extension != ".sqlite" && extension != ".xml" && extension != ".jpg" && extension != ".png")
+                    if (ignoredFiles.Contains(iaFileNode.Filename) == false) // != ".sqlite" && extension != ".xml" && extension != ".jpg" && extension != ".png")
                     {
                         lastUpdatedIAFileNode = iaFileNode;
                     }
                 }
                 filesToDownload.Add(iaFileNode);
                 ++totalFiles;
-
 
                 var urlSubPath = string.Empty;
                 var outputFile = Path.Combine(outputDirectory, iaFileNode.Filename);
@@ -228,6 +240,7 @@ foreach (var archive in config.ArchiveConfigs)
                     if (computedMD5 == iaFileNode.MD5)
                     {
                         shouldDownload = false;
+                        Log.Information($"Skipping download of {outputFile}.");
                     }
                     else
                     {
